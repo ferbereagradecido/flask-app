@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Processor</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="container mt-4">
+    <h1 class="text-center">Upload and Process Document</h1>
+    <form id="uploadForm" enctype="multipart/form-data" class="mb-4">
+        <div class="mb-3">
+            <label for="file" class="form-label">Choose a file:</label>
+            <input type="file" id="file" name="file" class="form-control" required>
+        </div>
+        <div class="mb-3">
+            <label for="numQuestions" class="form-label">Number of questions:</label>
+            <input type="number" id="numQuestions" name="numQuestions" class="form-control" min="1" value="3" required>
+        </div>
+        <button type="submit" class="btn btn-primary w-100">Upload & Process</button>
+    </form>
+
+    <h2 id="summaryTitle" class="mt-4" style="display:none;">Summary & Outline</h2>
+    <pre id="summaryOutput" class="border p-3 bg-light" style="display:none;"></pre>
+    <button id="startStudying" class="btn btn-success w-100 mt-3" style="display:none;">Start Studying</button>
+    
+    <div id="questionsContainer" class="mt-4" style="display:none;">
+        <h2>Answer the Questions</h2>
+        <p id="currentQuestion" class="fw-bold"></p>
+        <textarea id="userAnswer" class="form-control mb-3" rows="4" placeholder="Write your answer here..."></textarea>
+        <button id="submitAnswer" class="btn btn-primary w-100">Submit Answer</button>
+        <pre id="feedback" class="border p-3 bg-light mt-3"></pre>
+        <div id="nextStep" class="mt-3" style="display:none;">
+            <button id="repeatQuestion" class="btn btn-warning">Repeat Question</button>
+            <button id="nextQuestion" class="btn btn-secondary">Next Question</button>
+        </div>
+    </div>
+
+    <h2 class="mt-5">Previous Responses</h2>
+    <button id="loadResponses" class="btn btn-info">Load Responses</button>
+    <table class="table table-bordered mt-3" id="responsesTable" style="display:none;">
+        <thead>
+            <tr>
+                <th>Question</th>
+                <th>Your Answer</th>
+                <th>Feedback</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <script>
+        let documentText = "";
+        let questions = [];
+        let currentQuestionIndex = 0;
+
+        function displayNextQuestion() {
+            if (currentQuestionIndex >= questions.length) {
+                document.getElementById('questionsContainer').innerHTML = "<h2>All questions answered. Thank you!</h2>";
+                return;
+            }
+            document.getElementById('currentQuestion').textContent = `Question ${currentQuestionIndex + 1}: ${questions[currentQuestionIndex]}`;
+            document.getElementById('userAnswer').value = "";
+            document.getElementById('feedback').textContent = "";
+            document.getElementById('nextStep').style.display = "none";
+        }
+        
+        document.getElementById('uploadForm').onsubmit = async function(event) {
+            event.preventDefault();
+            
+            const formData = new FormData();
+            formData.append('file', document.getElementById('file').files[0]);
+            formData.append('numQuestions', document.getElementById('numQuestions').value);
+            
+            const response = await fetch('/process', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const result = await response.json();
+            documentText = result.summary;
+            questions = result.questions;
+            
+            document.getElementById('summaryOutput').textContent = result.summary;
+            document.getElementById('summaryTitle').style.display = 'block';
+            document.getElementById('summaryOutput').style.display = 'block';
+            document.getElementById('startStudying').style.display = 'block';
+            
+            if (questions.length > 0) {
+                document.getElementById('startStudying').onclick = function() {
+                    document.getElementById('questionsContainer').style.display = 'block';
+                    displayNextQuestion();
+                };
+            }
+        };
+
+        document.getElementById('submitAnswer').onclick = async function() {
+            const userAnswer = document.getElementById('userAnswer').value;
+            if (!userAnswer) {
+                alert("Please enter an answer before submitting.");
+                return;
+            }
+            
+            document.getElementById('feedback').textContent = "Processing...";
+            
+            try {
+                const response = await fetch('/evaluate_answer', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        question: questions[currentQuestionIndex],
+                        userAnswer: userAnswer,
+                        documentText: documentText
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error("Failed to get feedback from the server.");
+                }
+                
+                const result = await response.json();
+                document.getElementById('feedback').textContent = result.feedback;
+                document.getElementById('nextStep').style.display = "block";
+            } catch (error) {
+                console.error("Error evaluating answer:", error);
+                alert("There was an error processing your answer. Check the console for details.");
+            }
+        };
+
+        document.getElementById('nextQuestion').onclick = function() {
+            currentQuestionIndex++;
+            displayNextQuestion();
+        };
+
+        document.getElementById('repeatQuestion').onclick = function() {
+            document.getElementById('userAnswer').value = "";
+            document.getElementById('feedback').textContent = "";
+            document.getElementById('nextStep').style.display = "none";
+        };
+
+        document.getElementById('loadResponses').onclick = async function() {
+            const response = await fetch('/responses');
+            const result = await response.json();
+            const responsesTable = document.getElementById('responsesTable');
+            const tbody = responsesTable.querySelector('tbody');
+            tbody.innerHTML = "";
+            
+            result.responses.forEach(response => {
+                const row = `<tr>
+                    <td>${response[0]}</td>
+                    <td>${response[1]}</td>
+                    <td>${response[2]}</td>
+                </tr>`;
+                tbody.innerHTML += row;
+            });
+            
+            responsesTable.style.display = 'table';
+        };
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
